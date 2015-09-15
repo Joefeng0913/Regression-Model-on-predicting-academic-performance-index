@@ -1,0 +1,255 @@
+\documentclass{article}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+
+\section{handling data}
+<<>>=
+setwd("~/Downloads/Academics/STATS/101A/101A Project")
+library("foreign")
+junk1 <- read.dbf("api04bdb.DBF", as.is=TRUE)
+junk1$STYPE[junk1$STYPE == "1"]<-"Unified"
+junk1$STYPE[junk1$STYPE == "2"]<-"Elementary District"
+junk1$STYPE[junk1$STYPE == "3"]<-"9-12 High District"
+junk1$STYPE[junk1$STYPE == "4"]<-"7-12 High District"
+junk2<-junk1[-which(is.na(junk1$API04) == TRUE),]
+junk2$ST_RANK[junk2$ST_RANK=="I"]<-"NA"
+junk2$ST_RANK[junk2$ST_RANK=="B"]<-"100" ##B is special school, code to 100
+junk2$SIM_RANK[junk2$SIM_RANK == "B"]<-"100"
+junk2$SIM_RANK[junk2$SIM_RANK == "I"]<-"NA"
+junk2$GR_TARG[junk2$GR_TARG == "A"]<-"800"
+junk2$GR_TARG[junk2$GR_TARG == "B"]<-"NA"
+junk2$AA_TARG[junk2$AA_TARG == "A"]<-"800"
+junk2$AS_TARG[junk2$AS_TARG == "A"]<-"800"
+junk2$FI_TARG[junk2$FI_TARG == "A"]<-"800"
+junk2$HI_TARG[junk2$HI_TARG == "A"]<-"800"
+junk2$WH_TARG[junk2$WH_TARG == "A"]<-"800"
+junk2$SD_TARG[junk2$SD_TARG == "A"]<-"800"
+test <- unlist(lapply((lapply(junk2,as.numeric)), mean, na.rm=TRUE))
+test2 <- names(test[which(is.nan(test))])
+numcols <- as.data.frame(lapply(junk2[-(which(names(junk2) %in% test2))],as.numeric), stringsAsFactors=FALSE)
+api1 <- cbind(junk2[which(names(junk2) %in% test2)], numcols)
+api04.1 <- api1[names(junk2)]
+@
+
+\section{Sampling}
+<<>>=
+set.seed(1234)
+sample70<-api04.1[sample(length(api04.1[[1]]),length(junk2[,1])*0.7),]
+sample30<-api04.1[!(api04.1[1,] %in% sample70[1,]),]
+@
+
+\section{Correlation matrix}
+<<>>=
+sample70.2<-sample70[,unlist(lapply(sample70, is.numeric))]
+table1<-cor(sample70.2,use="pairwise.complete.obs")
+@
+
+\section{pick up predictors}
+<<>>=
+table2<-as.data.frame(table1)
+table3<-cbind(table2[,3],table2[,-3])
+tablef<-rbind(table3[3,],table3[-3,])
+tableff<-as.matrix(tablef)
+
+#Best Predictor Function
+bestpredictors = function(cortable, num.predictors, cor.cutoff) {
+temptable = cortable
+temptable[1,1] = 0
+preds = 0
+answer = c()
+  while (preds < num.predictors) {
+    index = which.max(abs(temptable[,1]))
+    answer = c(answer,index)
+    keep = c('API04' = 1, which(abs(temptable[index,]) < cor.cutoff))
+    keep[1] = T
+    temptable = temptable[keep,keep]
+    preds = preds + 1
+  }
+  return(answer)
+}
+
+bestpredictors(tableff,8,0.5)
+@
+
+\section{build a model based on numeric variables only}
+<<>>=
+fit1<-lm(API04~API_TARG+GRAD_SCH+CBMOB+CW_CSTH+EL+PCT_AS+FULL+CW_NRTM,data=sample70)
+summary(fit1)
+library(car)
+vif(fit1)
+fit2<-lm(API04~API_TARG+GRAD_SCH+CBMOB+CW_CSTH+PCT_AS,data=sample70)
+summary(fit2)
+vif(fit2)
+fit3<-lm(API04~GRAD_SCH+CBMOB+CW_CSTH+PCT_AS,data=sample70)
+summary(fit3)
+pairs(~API04+GRAD_SCH+CBMOB+CW_CSTH+PCT_AS,data=sample70)
+par(mfrow=c(2,2))
+plot(fit3)
+@
+
+\section{transformation}
+<<>>=
+mmps(fit3)
+library(alr3)
+par(mfrow=c(1,1))
+inverse.response.plot(fit3)
+##no transformation on Y
+fit4<-lm(API04~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS,data=sample70)
+summary(fit4)
+plot(fit4)
+mmps(fit4)
+library(alr3)
+inverse.response.plot(fit3)
+fit5<-lm(API04^1.5~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS,data=sample70)
+summary(fit5)
+par(mfrow=c(2,2))
+plot(fit5)
+mmps(fit5)
+library(MASS)
+boxcox(fit4)
+fit6<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS,data=sample70)
+summary(fit6)
+plot(fit6)
+mmps(fit6)
+@
+
+\section{categorical variables}
+<<>>=
+summary(lm(API04~RTYPE,data=sample70))
+summary(lm(API04~STYPE,data=sample70))
+summary(lm(API04~AA_SIG,data=sample70))
+summary(lm(API04~AS_SIG,data=sample70))
+summary(lm(API04~HI_SIG,data=sample70))
+summary(lm(API04~WH_SIG,data=sample70))
+summary(lm(API04~SD_SIG,data=sample70))
+summary(lm(API04~DFC,data=sample70))
+fit7<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+STYPE+AA_SIG+AS_SIG+HI_SIG+WH_SIG+SD_SIG+DFC,data=sample70)
+fit8<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+STYPE+AA_SIG+HI_SIG+WH_SIG+SD_SIG+DFC,data=sample70)
+summary(fit8)
+vif(fit8)
+fit9<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+AA_SIG+HI_SIG+WH_SIG+SD_SIG+DFC,data=sample70)
+summary(fit9)
+vif(fit9)
+@
+
+\section{AV-plot}
+<<>>=
+avPlot(fit9,variable="sqrt(GRAD_SCH)",ask=FALSE)
+avPlot(fit9,variable="CBMOB",ask=FALSE)
+avPlot(fit9,variable="CW_CSTH",ask=FALSE)
+avPlot(fit9,variable="PCT_AS",ask=FALSE)
+par(mfrow=c(1,1))
+avPlot(fit9,variable="RTYPES",ask=FALSE)
+avPlot(fit9,variable="AA_SIGYes",ask=FALSE)
+avPlot(fit9,variable="HI_SIGYes",ask=FALSE)
+avPlot(fit9,variable="WH_SIGYes",ask=FALSE)
+avPlot(fit9,variable="SD_SIGYes",ask=FALSE)
+avPlot(fit9,variable="DFCY",ask=FALSE)
+## Delete AA_SIG, HI_SIG and DFC based on AV-plot
+fit10<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+WH_SIG+SD_SIG,data=sample70)
+summary(fit10)
+par(mfrow=c(2,2))
+plot(fit10)
+@
+
+\section{Interaction term between categorical variables}
+<<>>=
+fit11<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+WH_SIG+SD_SIG+RTYPE:WH_SIG+RTYPE:SD_SIG+WH_SIG:SD_SIG,data=sample70)
+summary(fit11)
+fit12<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+SD_SIG+RTYPE:WH_SIG,data=sample70) # Final Model
+@
+
+\section{Interaction term between numeric and categorical variables}
+<<>>=
+fit13<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+SD_SIG+RTYPE:WH_SIG+sqrt(GRAD_SCH):RTYPE+sqrt(GRAD_SCH):SD_SIG+sqrt(GRAD_SCH):WH_SIG+CBMOB:RTYPE+CBMOB:SD_SIG+CBMOB:WH_SIG+CW_CSTH:RTYPE+CW_CSTH:SD_SIG+CW_CSTH:WH_SIG+PCT_AS:RTYPE+PCT_AS:SD_SIG+PCT_AS:WH_SIG,data=sample70)
+summary(fit13)
+vif(fit13)
+fit14<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+SD_SIG+RTYPE:WH_SIG+sqrt(GRAD_SCH):RTYPE+sqrt(GRAD_SCH):SD_SIG+sqrt(GRAD_SCH):WH_SIG+CW_CSTH:RTYPE+CW_CSTH:SD_SIG+CW_CSTH:WH_SIG+PCT_AS:WH_SIG,data=sample70)
+summary(fit14)
+vif(fit14)
+@
+Since R square does not improve much and multicolinearity problem occurs, we do not include any interaction between numeric and categorical variable.
+
+\section{delete outliers and bad leverage points}
+<<>>=
+newsample70 <- subset(sample70, row.names(sample70)!= 2411 & row.names(sample70)!=7593 &row.names(sample70)!=2438)
+@
+We use 4 and -4 as upper and lower bound for standardized residuals.
+
+\section{final full model}
+<<>>=
+fit12<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+SD_SIG+RTYPE:WH_SIG,data=newsample70)
+plot(fit12)
+summary(fit12)
+avPlot(fit12,variable="sqrt(GRAD_SCH)",ask=FALSE)
+avPlot(fit12,variable="CBMOB",ask=FALSE)
+avPlot(fit12,variable="CW_CSTH",ask=FALSE)
+avPlot(fit12,variable="PCT_AS",ask=FALSE)
+avPlot(fit12,variable="RTYPES",ask=FALSE)
+avPlot(fit12,variable="SD_SIGYes",ask=FALSE)
+Fun1 <- function(data, desiredCols){
+  Vec <- complete.cases(data[,desiredCols])
+  return(data[Vec,])
+} 
+which(colnames(newsample70)=="API04")
+which(colnames(newsample70)=="GRAD_SCH")
+which(colnames(newsample70)=="CBMOB")
+which(colnames(newsample70)=="CW_CSTH")
+which(colnames(newsample70)=="PCT_AS")
+which(colnames(newsample70)=="RTYPE")
+which(colnames(newsample70)=="SD_SIG")
+which(colnames(newsample70)=="WH_SIG")
+base1<-Fun1(newsample70,9)
+base2<-Fun1(base1,75)
+base3<-Fun1(base2,65)
+base4<-Fun1(base3,105)
+base5<-Fun1(base4,56)
+base6<-Fun1(base5,2)
+base7<-Fun1(base6,50)
+base8<-Fun1(base7,45)
+API04<-base8$API04
+GRAD_SCH<-base8$GRAD_SCH
+CBMOB<-base8$CBMOB
+CW_CSTH<-base8$CW_CSTH
+PCT_AS<-base8$PCT_AS
+RTYPE<-base8$RTYPE
+SD_SIG<-base8$SD_SIG
+WH_SIG<-base8$WH_SIG
+fit12<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+SD_SIG+RTYPE:WH_SIG)
+plot(API04^2~fitted(fit12),xlab="Fitted values",main="A plot of API04^2 against fitted values with a straight line added")
+abline(lsfit(fit12$fitted.values,API04^2),col="red")
+@
+
+\section{forward selection, backward elimination based on AIC}
+<<>>=
+backAIC<-step(fit12,direction="backward",data=sample70)
+forwardAIC<-step(fit12,direction="forward",data=sample70)
+@
+
+\section{cross validation}
+<<>>=
+mtest<-lm(API04^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+SD_SIG+RTYPE:WH_SIG,data=sample30)
+summary(mtest)
+plot(mtest)
+@
+
+\section{growth data}
+<<>>=
+junk4 <- read.dbf("api05gdb.DBF", as.is=TRUE)
+junk5<-junk4[-which(is.na(junk4$API05) == TRUE),]
+test <- unlist(lapply((lapply(junk5,as.numeric)), mean, na.rm=TRUE))
+test2 <- names(test[which(is.nan(test))])
+numcols <- as.data.frame(lapply(junk5[-(which(names(junk5) %in% test2))],as.numeric), stringsAsFactors=FALSE)
+api1 <- cbind(junk5[which(names(junk5) %in% test2)], numcols)
+api05.1 <- api1[names(junk5)]
+@
+
+<<>>=
+fitf<-lm(API05^2~sqrt(GRAD_SCH)+CBMOB+CW_CSTH+PCT_AS+RTYPE+SD_SIG+RTYPE:WH_SIG,data=api05.1)
+summary(fitf)
+plot(fitf)
+mmps(fitf)
+@
+\end{document}
+
